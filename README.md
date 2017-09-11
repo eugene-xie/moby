@@ -18,7 +18,7 @@ At the core of Moby is a framework to assemble specialized container systems.
 It provides:
 
 - A library of containerized components for all vital aspects of a container system: OS, container runtime, orchestration, infrastructure management, networking, storage, security, build, image distribution, etc.
-- Tools to assemble the components into runnable artifacts for a variety of platforms and architectures: bare metal (both x86 and Arm); executables for Linux, Mac and Windows; VM images for popular cloud and virtualization providers.
+- Tools to assemble the components into runnable artifacts for a variety of platforms and architectures: bare metal (both x86 and Arm64); executables for Linux, Mac and Windows; VM images for popular cloud and virtualization providers.
 - A set of reference assemblies which can be used as-is, modified, or used as inspiration to create your own.
 
 All Moby components are containers, so creating new components is as easy as building a new OCI-compatible container.
