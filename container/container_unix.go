@@ -1,11 +1,10 @@
-// +build linux freebsd solaris
+// +build linux freebsd
 
 package container
 
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
@@ -13,7 +12,6 @@ import (
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/docker/docker/pkg/symlink"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/volume"
 	"github.com/opencontainers/selinux/go-selinux/label"
@@ -23,17 +21,11 @@ import (
 )
 
 const (
+	// DefaultStopTimeout is the timeout (in seconds) for the syscall signal used to stop a container.
+	DefaultStopTimeout = 10
+
 	containerSecretMountPath = "/run/secrets"
 )
-
-// ExitStatus provides exit reasons for a container.
-type ExitStatus struct {
-	// The exit code with which the container exited.
-	ExitCode int
-
-	// Whether the container encountered an OOM.
-	OOMKilled bool
-}
 
 // TrySetNetworkMount attempts to set the network mounts given a provided destination and
 // the path to use for it; return true if the given destination was a network mount file
@@ -68,6 +60,7 @@ func (container *Container) BuildHostnameFile() error {
 func (container *Container) NetworkMounts() []Mount {
 	var mounts []Mount
 	shared := container.HostConfig.NetworkMode.IsContainer()
+	parser := volume.NewParser(container.OS)
 	if container.ResolvConfPath != "" {
 		if _, err := os.Stat(container.ResolvConfPath); err != nil {
 			logrus.Warnf("ResolvConfPath set to %q, but can't stat this filename (err = %v); skipping", container.ResolvConfPath, err)
@@ -83,7 +76,7 @@ func (container *Container) NetworkMounts() []Mount {
 				Source:      container.ResolvConfPath,
 				Destination: "/etc/resolv.conf",
 				Writable:    writable,
-				Propagation: string(volume.DefaultPropagationMode),
+				Propagation: string(parser.DefaultPropagationMode()),
 			})
 		}
 	}
@@ -102,7 +95,7 @@ func (container *Container) NetworkMounts() []Mount {
 				Source:      container.HostnamePath,
 				Destination: "/etc/hostname",
 				Writable:    writable,
-				Propagation: string(volume.DefaultPropagationMode),
+				Propagation: string(parser.DefaultPropagationMode()),
 			})
 		}
 	}
@@ -121,7 +114,7 @@ func (container *Container) NetworkMounts() []Mount {
 				Source:      container.HostsPath,
 				Destination: "/etc/hosts",
 				Writable:    writable,
-				Propagation: string(volume.DefaultPropagationMode),
+				Propagation: string(parser.DefaultPropagationMode()),
 			})
 		}
 	}
@@ -130,7 +123,7 @@ func (container *Container) NetworkMounts() []Mount {
 
 // CopyImagePathContent copies files in destination to the volume.
 func (container *Container) CopyImagePathContent(v volume.Volume, destination string) error {
-	rootfs, err := symlink.FollowSymlinkInScope(filepath.Join(container.BaseFS, destination), container.BaseFS)
+	rootfs, err := container.GetResourcePath(destination)
 	if err != nil {
 		return err
 	}
@@ -196,6 +189,7 @@ func (container *Container) UnmountIpcMount(unmount func(pth string) error) erro
 // IpcMounts returns the list of IPC mounts
 func (container *Container) IpcMounts() []Mount {
 	var mounts []Mount
+	parser := volume.NewParser(container.OS)
 
 	if container.HasMountFor("/dev/shm") {
 		return mounts
@@ -209,7 +203,7 @@ func (container *Container) IpcMounts() []Mount {
 		Source:      container.ShmPath,
 		Destination: "/dev/shm",
 		Writable:    true,
-		Propagation: string(volume.DefaultPropagationMode),
+		Propagation: string(parser.DefaultPropagationMode()),
 	})
 
 	return mounts
@@ -429,6 +423,7 @@ func copyOwnership(source, destination string) error {
 
 // TmpfsMounts returns the list of tmpfs mounts
 func (container *Container) TmpfsMounts() ([]Mount, error) {
+	parser := volume.NewParser(container.OS)
 	var mounts []Mount
 	for dest, data := range container.HostConfig.Tmpfs {
 		mounts = append(mounts, Mount{
@@ -439,7 +434,7 @@ func (container *Container) TmpfsMounts() ([]Mount, error) {
 	}
 	for dest, mnt := range container.MountPoints {
 		if mnt.Type == mounttypes.TypeTmpfs {
-			data, err := volume.ConvertTmpfsOptions(mnt.Spec.TmpfsOptions, mnt.Spec.ReadOnly)
+			data, err := parser.ConvertTmpfsOptions(mnt.Spec.TmpfsOptions, mnt.Spec.ReadOnly)
 			if err != nil {
 				return nil, err
 			}
@@ -451,11 +446,6 @@ func (container *Container) TmpfsMounts() ([]Mount, error) {
 		}
 	}
 	return mounts, nil
-}
-
-// cleanResourcePath cleans a resource path and prepares to combine with mnt path
-func cleanResourcePath(path string) string {
-	return filepath.Join(string(os.PathSeparator), path)
 }
 
 // EnableServiceDiscoveryOnDefaultNetwork Enable service discovery on default network
